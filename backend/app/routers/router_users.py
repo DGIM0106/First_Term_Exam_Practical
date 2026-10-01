@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
-from models.model_registro_login import ModelLogin, ModelRegister, ModelLoginRegister
+from models.model_users import ModelLogin, ModelRegister, ModelUser
 from MyDbContext import SessionDep
 from sqlmodel import select
 
@@ -7,13 +7,13 @@ auth = APIRouter (prefix="/auth")
 
 @auth.get("/")
 def test(session: SessionDep):
-    revisar = session.exec(select(ModelLoginRegister)).all()
+    revisar = session.exec(select(ModelUser)).all()
     return revisar
 
 #crear o register
 @auth.post("/register")
 def registerNewUser(session: SessionDep, context: ModelRegister):
-    estado = select(ModelLoginRegister).where(ModelLoginRegister.correo == context.correo)
+    estado = select(ModelUser).where(ModelUser.correo == context.correo)
     filtro = session.exec(estado).first()
     if filtro:
         raise HTTPException(
@@ -21,7 +21,7 @@ def registerNewUser(session: SessionDep, context: ModelRegister):
           detail="El correo ya se encuetra registrado"  
         )
 
-    newRegister = ModelLoginRegister(
+    newRegister = ModelUser(
         nombre=context.nombre,
         correo=context.correo,
         password=context.password
@@ -35,7 +35,7 @@ def registerNewUser(session: SessionDep, context: ModelRegister):
 #login 
 @auth.post("/login")
 def loginUser(session: SessionDep, context: ModelLogin): 
-    statement = select(ModelLoginRegister).where(ModelLoginRegister.correo == context.correo, ModelLoginRegister.password == context.password)
+    statement = select(ModelUser).where(ModelUser.correo == context.correo, ModelUser.password == context.password)
     filtro= session.exec(statement).first()
     if not filtro:
         raise HTTPException(

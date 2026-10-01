@@ -10,7 +10,7 @@ class ModelVideo(SQLModel, table=True):
     views: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    user_id: int = Field(foreign_key="modelloginregister.id")
+    user_id: int = Field(foreign_key="modeluser.id")
 
 class ModelNewVideo(SQLModel):
     title: str

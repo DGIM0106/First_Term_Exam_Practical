@@ -1,9 +1,18 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from MyDbContext import create_all_tables
-from app.routers import router_register_login, router_video
+from app.routers import router_video
+from app.routers import router_users
 
 app = FastAPI(lifespan=create_all_tables)
 
-app.include_router(router_register_login.auth)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[" http://localhost:5173/"],
+    allow_credentials= True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
 
+app.include_router(router_users.auth)
 app.include_router(router_video.videos)

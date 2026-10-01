@@ -6,7 +6,7 @@ class ModelComment(SQLModel, table=True):
     content: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    user_id: int = Field(foreign_key="modelloginregister.id")
+    user_id: int = Field(foreign_key="modeluser.id")
     video_id: int = Field(foreign_key="modelvideo.id")
 
 class ModelCommentCreate(SQLModel):

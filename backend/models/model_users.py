@@ -1,6 +1,6 @@
 from sqlmodel import SQLModel, Field
 
-class ModelLoginRegister (SQLModel, table= True):
+class ModelUser (SQLModel, table= True):
     id: int | None = Field (primary_key=True, default=None)
     nombre: str
     correo: str = Field(index=True, unique=True)
