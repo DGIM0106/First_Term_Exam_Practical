@@ -1,9 +1,17 @@
 from typing import Annotated
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI
 from sqlmodel import SQLModel, Session
 from sqlmodel import create_engine
+import os
 
-string_connection = "postgresql://postgres:D1n32l.3c1z1@localhost:5432/FTE_db"
+name_database = "FTE_db"
+
+load_dotenv()
+
+base_url = os.getenv("DATABASE_URL")
+
+string_connection = base_url + name_database
 
 engine = create_engine(string_connection, echo= True)
 
