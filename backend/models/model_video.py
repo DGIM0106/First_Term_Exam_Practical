@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlmodel import SQLModel, Field
 
 class ModelVideo(SQLModel, table=True):
@@ -8,7 +8,7 @@ class ModelVideo(SQLModel, table=True):
     video_url: str
     thumbnail_url: str
     views: int = Field(default=0)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     user_id: int = Field(foreign_key="modeluser.id")
 

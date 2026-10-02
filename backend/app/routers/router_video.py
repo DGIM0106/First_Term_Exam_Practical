@@ -4,11 +4,12 @@ from sqlmodel import select, desc
 from MyDbContext import SessionDep
 from models.model_video import ModelVideo, VideoUpdate, ModelNewVideo
 from models.model_comments import ModelCommentCreate, ModelComment
+from models.model_users import ModelUser
 from services.s3_service import upload_file_to_s3, delete_file_from_s3
 
 videos = APIRouter(prefix="/videos")
 
-def Existencia(filtro: ModelVideo, Mensaje: str):
+def Existencia(filtro: Optional[ModelVideo], Mensaje: str):
     if filtro is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -17,25 +18,30 @@ def Existencia(filtro: ModelVideo, Mensaje: str):
 
 @videos.get("/")
 def catalagoPrincipal(context: SessionDep):
-    filtro = context.exec(select(ModelVideo).order_by(desc(ModelVideo.created_at))).all()
-    return filtro
+    statement = (
+        select(ModelVideo, ModelUser.nombre)
+        .join(ModelUser, ModelVideo.user_id == ModelUser.id, isouter=True)
+        .order_by(desc(ModelVideo.created_at))
+    )
+    results = context.exec(statement).all()
+
+    video_list = []
+    for video, user_nombre in results:
+        v_dict = video.model_dump()
+        v_dict["user_nombre"] = user_nombre or f"Usuario #{video.user_id}"
+        video_list.append(v_dict)
+    return video_list
 
 @videos.post("/")
 def publishVideo(
     context: SessionDep,
-    title: Optional[str] = Form(None),
-    description: Optional[str] = Form(None),
-    user_id: Optional[int] = Form(None),
-    video: Optional[UploadFile] = File(None),
-    thumbnail: Optional[UploadFile] = File(None),
-    json_data: Optional[ModelNewVideo] = None,
+    title: str = Form(...),
+    description: str = Form(...),
+    user_id: int = Form(...),
+    video: UploadFile = File(...),
+    thumbnail: UploadFile = File(...),
 ):
-    """
-    Publica un nuevo video procesando los archivos subidos (video e imagen miniatura)
-    a AWS S3 mediante el servicio s3_service.
-    """
-    # Si viene como multipart/form-data con archivos subidos
-    if video and thumbnail and title and description and user_id is not None:
+    try:
         video_url = upload_file_to_s3(
             file_obj=video.file,
             filename=video.filename or "video.mp4",
@@ -48,44 +54,53 @@ def publishVideo(
             content_type=thumbnail.content_type or "image/jpeg",
             is_video=False,
         )
-
-        newVideo = ModelVideo(
-            title=title,
-            description=description,
-            video_url=video_url,
-            thumbnail_url=thumbnail_url,
-            user_id=user_id,
-        )
-    # Si se envía como JSON (ModelNewVideo)
-    elif json_data:
-        newVideo = ModelVideo(
-            title=json_data.title,
-            description=json_data.description,
-            video_url=json_data.video_url,
-            thumbnail_url=json_data.thumbnail_url,
-            user_id=json_data.user_id,
-        )
-    else:
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Se requieren los archivos de video y miniatura junto con título, descripción y user_id.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al subir archivos a AWS S3: {str(e)}"
         )
+
+    newVideo = ModelVideo(
+        title=title,
+        description=description,
+        video_url=video_url,
+        thumbnail_url=thumbnail_url,
+        user_id=user_id,
+    )
 
     context.add(newVideo)
     context.commit()
     context.refresh(newVideo)
-    return newVideo
+
+    user = context.exec(select(ModelUser).where(ModelUser.id == user_id)).first()
+    v_dict = newVideo.model_dump()
+    v_dict["user_nombre"] = user.nombre if user else f"Usuario #{user_id}"
+    return v_dict
 
 @videos.get("/{id}")
 def playVideo(context: SessionDep, id: int):
-    filtro = context.exec(select(ModelVideo).where(ModelVideo.id == id)).first()
-    Existencia(filtro, "Video no existe")
+    statement = (
+        select(ModelVideo, ModelUser.nombre)
+        .join(ModelUser, ModelVideo.user_id == ModelUser.id, isouter=True)
+        .where(ModelVideo.id == id)
+    )
+    result = context.exec(statement).first()
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video no existe"
+        )
+
+    filtro, user_nombre = result
     filtro.views += 1
 
     context.add(filtro)
     context.commit()
     context.refresh(filtro)
-    return filtro
+
+    v_dict = filtro.model_dump()
+    v_dict["user_nombre"] = user_nombre or f"Usuario #{filtro.user_id}"
+    return v_dict
 
 @videos.put("/{id}")
 def editVideo(context: SessionDep, id: int, data: VideoUpdate):
@@ -101,14 +116,16 @@ def editVideo(context: SessionDep, id: int, data: VideoUpdate):
     context.commit()
     context.refresh(filtro)
 
-    return filtro
+    user = context.exec(select(ModelUser).where(ModelUser.id == filtro.user_id)).first()
+    v_dict = filtro.model_dump()
+    v_dict["user_nombre"] = user.nombre if user else f"Usuario #{filtro.user_id}"
+    return v_dict
 
 @videos.delete("/{id}")
 def deletedVideo(context: SessionDep, id: int):
     filtro = context.exec(select(ModelVideo).where(ModelVideo.id == id)).first()
     Existencia(filtro, "Video no encontrado")
 
-    # Eliminar archivos asociados del bucket de AWS S3 mediante s3_service
     delete_file_from_s3(filtro.video_url, is_video=True)
     delete_file_from_s3(filtro.thumbnail_url, is_video=False)
 
@@ -121,6 +138,7 @@ def deletedVideo(context: SessionDep, id: int):
 def addComments(id: int, data: ModelCommentCreate, context: SessionDep):
     filtro = context.exec(select(ModelVideo).where(ModelVideo.id == id)).first()
     Existencia(filtro, "Error")
+
     newComent = ModelComment(
         user_id=data.user_id,
         content=data.content,
@@ -129,14 +147,42 @@ def addComments(id: int, data: ModelCommentCreate, context: SessionDep):
     context.add(newComent)
     context.commit()
     context.refresh(newComent)
-    return newComent
+
+    user = context.exec(select(ModelUser).where(ModelUser.id == data.user_id)).first()
+    c_dict = newComent.model_dump()
+    c_dict["user_nombre"] = user.nombre if user else f"Usuario #{data.user_id}"
+    return c_dict
 
 @videos.get("/{id}/comments")
 def viewComments(id: int, context: SessionDep):
-    filtro = context.exec(select(ModelComment).where(ModelComment.video_id == id).order_by(desc(ModelComment.created_at))).all()
-    return filtro
+    statement = (
+        select(ModelComment, ModelUser.nombre)
+        .join(ModelUser, ModelComment.user_id == ModelUser.id, isouter=True)
+        .where(ModelComment.video_id == id)
+        .order_by(desc(ModelComment.created_at))
+    )
+    results = context.exec(statement).all()
+
+    comments_list = []
+    for comment, user_nombre in results:
+        c_dict = comment.model_dump()
+        c_dict["user_nombre"] = user_nombre or f"Usuario #{comment.user_id}"
+        comments_list.append(c_dict)
+    return comments_list
 
 @videos.get("/{id}/recommended")
 def videosRecommendation(id: int, context: SessionDep):
-    filtro = context.exec(select(ModelVideo).where(ModelVideo.id != id).limit(5)).all()
-    return filtro
+    statement = (
+        select(ModelVideo, ModelUser.nombre)
+        .join(ModelUser, ModelVideo.user_id == ModelUser.id, isouter=True)
+        .where(ModelVideo.id != id)
+        .limit(5)
+    )
+    results = context.exec(statement).all()
+
+    video_list = []
+    for video, user_nombre in results:
+        v_dict = video.model_dump()
+        v_dict["user_nombre"] = user_nombre or f"Usuario #{video.user_id}"
+        video_list.append(v_dict)
+    return video_list
