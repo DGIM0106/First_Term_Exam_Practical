@@ -6,6 +6,7 @@ from models.model_video import ModelVideo, VideoUpdate, ModelNewVideo
 from models.model_comments import ModelCommentCreate, ModelComment
 from models.model_users import ModelUser
 from services.s3_service import upload_file_to_s3, delete_file_from_s3
+from datetime import datetime, timezone
 
 videos = APIRouter(prefix="/videos")
 
@@ -66,6 +67,7 @@ def publishVideo(
         video_url=video_url,
         thumbnail_url=thumbnail_url,
         user_id=user_id,
+        created_at=datetime.now(timezone.utc),
     )
 
     context.add(newVideo)
